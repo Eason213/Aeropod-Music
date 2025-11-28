@@ -10,7 +10,7 @@ import {
 
 // --- 設定您的 API KEY ---
 // 請將您的 YouTube Data API v3 Key 貼在下方引號中
-const API_KEY = ""; 
+const API_KEY = "AIzaSyBpy0IZXf9kkkPh2FlO-UMTVXUSmNqqyTQ"; 
 // -----------------------
 
 // Default background for aesthetic
