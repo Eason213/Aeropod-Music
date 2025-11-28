@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 
 declare global {
   interface Window {
@@ -16,17 +16,30 @@ interface VideoPlayerProps {
   onReady: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({
+export interface VideoPlayerHandle {
+  seekTo: (seconds: number) => void;
+}
+
+const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   videoId,
   isPlaying,
   volume,
   onTimeUpdate,
   onEnded,
   onReady,
-}) => {
+}, ref) => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<number | null>(null);
+
+  // Expose methods to parent
+  useImperativeHandle(ref, () => ({
+    seekTo: (seconds: number) => {
+      if (playerRef.current && playerRef.current.seekTo) {
+        playerRef.current.seekTo(seconds, true);
+      }
+    }
+  }));
 
   useEffect(() => {
     // Load YouTube IFrame API
@@ -55,6 +68,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Handle Video ID Change
   useEffect(() => {
     if (playerRef.current && playerRef.current.loadVideoById) {
+      // NOTE: This assumes videoId is a single video. 
+      // If we supported playlists natively in player, we'd use loadPlaylist.
+      // But for this simplified structure, we treat ID as video ID.
       playerRef.current.loadVideoById(videoId);
     }
   }, [videoId]);
@@ -133,6 +149,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div ref={containerRef}></div>
     </div>
   );
-};
+});
 
 export default VideoPlayer;

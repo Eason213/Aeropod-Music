@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { searchYouTube } from './services/youtubeService';
-import VideoPlayer from './components/VideoPlayer';
+import VideoPlayer, { VideoPlayerHandle } from './components/VideoPlayer';
 import Seekbar from './components/Seekbar';
 import { VideoItem, RepeatMode } from './types';
 import { 
@@ -8,13 +8,18 @@ import {
   Shuffle, Repeat, ChevronDown, List, Music2, AlertCircle 
 } from './components/Icons';
 
+// --- 設定您的 API KEY ---
+// 請將您的 YouTube Data API v3 Key 貼在下方引號中
+const API_KEY = "AIzaSyBpy0IZXf9kkkPh2FlO-UMTVXUSmNqqyTQ"; 
+// -----------------------
+
 // Default background for aesthetic
 const DEFAULT_BG = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop";
 
 const App: React.FC = () => {
   // Data State
-  const [apiKey, setApiKey] = useState<string>('');
   const [query, setQuery] = useState('');
+  const [searchType, setSearchType] = useState<'video' | 'playlist'>('video');
   const [results, setResults] = useState<VideoItem[]>([]);
   const [queue, setQueue] = useState<VideoItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
@@ -30,29 +35,22 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const storedKey = localStorage.getItem('yt_api_key');
-    if (storedKey) setApiKey(storedKey);
-  }, []);
-
-  const handleSaveKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('yt_api_key', key);
-    setView('search');
-  };
+  // Refs
+  const playerRef = useRef<VideoPlayerHandle>(null);
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
-    if (!apiKey) {
-      setView('settings');
+    
+    if (!API_KEY) {
+      setError("請先在程式碼 App.tsx 中填入 API Key");
       return;
     }
 
     setIsLoading(true);
     setError(null);
     try {
-      const items = await searchYouTube(query, apiKey);
+      const items = await searchYouTube(query, API_KEY, searchType);
       setResults(items);
     } catch (err: any) {
       setError(err.message);
@@ -62,22 +60,27 @@ const App: React.FC = () => {
   };
 
   const playTrack = (video: VideoItem, index: number, fromList: VideoItem[]) => {
+    let newQueue = [...fromList];
+    let newIndex = index;
+
     if (isShuffle) {
-        // Create a shuffled version of the list starting with the selected song
-        const remaining = fromList.filter(v => v.id !== video.id);
+        // Keep the selected song first, shuffle the rest
+        const selected = fromList[index];
+        const remaining = fromList.filter(v => v.id !== selected.id);
         const shuffled = remaining.sort(() => Math.random() - 0.5);
-        setQueue([video, ...shuffled]);
-        setCurrentIndex(0);
-    } else {
-        setQueue(fromList);
-        setCurrentIndex(index);
+        newQueue = [selected, ...shuffled];
+        newIndex = 0;
     }
+    
+    setQueue(newQueue);
+    setCurrentIndex(newIndex);
     setIsPlaying(true);
     setView('player');
   };
 
   const playRandomResults = () => {
     if (results.length === 0) return;
+    
     const shuffled = [...results].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
     setCurrentIndex(0);
@@ -87,23 +90,43 @@ const App: React.FC = () => {
 
   const handleNext = () => {
     if (queue.length === 0) return;
-    const nextIndex = (currentIndex + 1) % queue.length;
+    
+    let nextIndex = currentIndex + 1;
+    // Loop back to start
+    if (nextIndex >= queue.length) {
+        nextIndex = 0;
+    }
     setCurrentIndex(nextIndex);
   };
 
   const handlePrev = () => {
     if (queue.length === 0) return;
+    
     // If more than 3 seconds in, restart song
     if (progress.current > 3) {
-      // Logic handled by seeking to 0, but simplicity sake we just trigger next render with same ID or seek
-       // For this simple implementation, let's just go back in array
+      playerRef.current?.seekTo(0);
+      return;
     }
+    
     const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
     setCurrentIndex(prevIndex);
   };
 
+  const handleSeek = (time: number) => {
+    // Optimistically update UI
+    setProgress(prev => ({ ...prev, current: time }));
+    // Tell player to seek
+    playerRef.current?.seekTo(time);
+  };
+
   const handleTimeUpdate = (current: number, duration: number) => {
+    // Only update if not currently dragging (dragging logic handled in Seekbar, 
+    // but here we just update state normally)
     setProgress({ current, duration });
+  };
+
+  const toggleShuffle = () => {
+      setIsShuffle(!isShuffle);
   };
 
   const currentTrack = queue[currentIndex];
@@ -128,6 +151,7 @@ const App: React.FC = () => {
         {/* Hidden Player Logic */}
         {currentTrack && (
           <VideoPlayer
+            ref={playerRef}
             videoId={currentTrack.id}
             isPlaying={isPlaying}
             volume={100}
@@ -141,26 +165,41 @@ const App: React.FC = () => {
         {view === 'search' && (
           <div className="flex-1 flex flex-col p-6 animate-slide-up">
             {/* Header */}
-            <div className="flex justify-between items-center mb-8 pt-4">
+            <div className="flex justify-between items-center mb-6 pt-4">
                <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-white to-white/50 bg-clip-text text-transparent">
                  AeroPod
                </h1>
-               <button onClick={() => setView('settings')} className="p-2 bg-white/10 rounded-full backdrop-blur-md active:scale-95 transition">
-                 <Settings size={20} className="text-white/80" />
-               </button>
             </div>
 
-            {/* Search Bar */}
-            <form onSubmit={handleSearch} className="relative mb-6 group">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search songs, artists..."
-                className="w-full h-14 pl-12 pr-4 bg-white/5 border border-white/10 rounded-2xl text-lg placeholder-white/30 focus:outline-none focus:bg-white/10 focus:border-white/30 transition-all backdrop-blur-xl shadow-lg"
-              />
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-white transition-colors" size={20} />
-            </form>
+            {/* Search Controls */}
+            <div className="flex flex-col gap-3 mb-6">
+                <form onSubmit={handleSearch} className="relative group">
+                <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search songs, artists..."
+                    className="w-full h-14 pl-12 pr-4 bg-white/5 border border-white/10 rounded-2xl text-lg placeholder-white/30 focus:outline-none focus:bg-white/10 focus:border-white/30 transition-all backdrop-blur-xl shadow-lg"
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-white transition-colors" size={20} />
+                </form>
+
+                {/* Filter Toggle */}
+                <div className="flex p-1 bg-white/10 rounded-xl backdrop-blur-md">
+                    <button 
+                        onClick={() => setSearchType('video')}
+                        className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${searchType === 'video' ? 'bg-white text-black shadow-md' : 'text-white/60 hover:text-white'}`}
+                    >
+                        單曲 (4分內)
+                    </button>
+                    <button 
+                        onClick={() => setSearchType('playlist')}
+                        className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${searchType === 'playlist' ? 'bg-white text-black shadow-md' : 'text-white/60 hover:text-white'}`}
+                    >
+                        播放清單
+                    </button>
+                </div>
+            </div>
 
             {/* Actions */}
             {results.length > 0 && (
@@ -169,7 +208,7 @@ const App: React.FC = () => {
                     onClick={playRandomResults}
                     className="flex-1 h-12 flex items-center justify-center gap-2 bg-white text-black font-semibold rounded-xl active:scale-95 transition shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                   >
-                    <Shuffle size={18} /> Shuffle Results
+                    <Shuffle size={18} /> 隨機播放
                   </button>
                </div>
             )}
@@ -213,8 +252,7 @@ const App: React.FC = () => {
               {results.length === 0 && !isLoading && !error && (
                  <div className="text-center text-white/30 mt-20">
                     <Music2 size={48} className="mx-auto mb-4 opacity-50" />
-                    <p>Search for songs to begin.</p>
-                    <p className="text-xs mt-2 opacity-50">Results filtered to &lt; 4 mins</p>
+                    <p>Search to begin listening.</p>
                  </div>
               )}
             </div>
@@ -230,7 +268,7 @@ const App: React.FC = () => {
                  <ChevronDown size={24} />
                </button>
                <span className="text-xs font-bold tracking-widest uppercase text-white/40">Now Playing</span>
-               <button className="p-3 bg-white/5 rounded-full backdrop-blur-md active:scale-95 transition">
+               <button className="p-3 bg-white/5 rounded-full backdrop-blur-md active:scale-95 transition opacity-0 cursor-default">
                  <List size={24} />
                </button>
              </div>
@@ -256,25 +294,18 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="space-y-6">
-                  {/* Seekbar */}
+                  {/* Seekbar - Now Draggable */}
                   <Seekbar 
                      currentTime={progress.current} 
                      duration={progress.duration} 
-                     onChange={(val) => {
-                        if (window.YT && window.YT.get && window.YT.get(currentTrack.id)) {
-                             // This is tricky with hidden player, usually you interact with player instance directly. 
-                             // Since we don't have direct access to instance in this parent, we can skip seeking for this MVP
-                             // or implement a context. For simplicity, skipping strict seek interaction or rely on VideoPlayer 
-                             // exposing a ref, but keeping UI clean.
-                        }
-                     }}
+                     onChange={handleSeek}
                   />
 
                   {/* Main Buttons */}
                   <div className="flex items-center justify-between px-4">
                      <button 
-                        onClick={() => setIsShuffle(!isShuffle)}
-                        className={`p-2 transition ${isShuffle ? 'text-green-400' : 'text-white/40'}`}
+                        onClick={toggleShuffle}
+                        className={`p-2 transition duration-300 ${isShuffle ? 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]' : 'text-white/40'}`}
                      >
                         <Shuffle size={20} />
                      </button>
@@ -296,49 +327,11 @@ const App: React.FC = () => {
                         </button>
                      </div>
 
-                     <button className="p-2 text-white/40">
+                     <button className="p-2 text-white/40 opacity-50 cursor-not-allowed">
                         <Repeat size={20} />
                      </button>
                   </div>
                 </div>
-             </div>
-          </div>
-        )}
-
-        {/* --- VIEW: SETTINGS --- */}
-        {view === 'settings' && (
-          <div className="flex-1 flex flex-col p-8 animate-slide-up bg-black/80 backdrop-blur-xl">
-             <div className="flex justify-between items-center mb-10">
-                <h2 className="text-2xl font-bold">Settings</h2>
-                <button onClick={() => setView('search')} className="text-sm font-medium text-white/60">Done</button>
-             </div>
-
-             <div className="glass-panel p-6 rounded-3xl space-y-4">
-                <label className="block text-sm font-medium text-white/60">YouTube Data API Key</label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Paste your API key here"
-                    className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-white focus:outline-none focus:border-white/40 transition"
-                  />
-                </div>
-                <p className="text-xs text-white/40 leading-relaxed">
-                   Enter your <strong>YouTube Data API v3</strong> key. 
-                   <br/>
-                   <span className="text-yellow-400/80">Where to find it:</span> Google Cloud Console {'>'} APIs & Services {'>'} Credentials.
-                </p>
-                <button 
-                  onClick={() => handleSaveKey(apiKey)}
-                  className="w-full h-12 bg-white text-black font-bold rounded-xl mt-4 active:scale-95 transition"
-                >
-                  Save API Key
-                </button>
-             </div>
-             
-             <div className="mt-8 text-center">
-                <p className="text-xs text-white/20">AeroPod Music v1.0 • iOS 26 Concept</p>
              </div>
           </div>
         )}
