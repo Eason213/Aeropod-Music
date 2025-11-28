@@ -68,10 +68,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   // Handle Video ID Change
   useEffect(() => {
     if (playerRef.current && playerRef.current.loadVideoById) {
-      // NOTE: This assumes videoId is a single video. 
-      // If we supported playlists natively in player, we'd use loadPlaylist.
-      // But for this simplified structure, we treat ID as video ID.
-      playerRef.current.loadVideoById(videoId);
+      if (isPlaying) {
+          playerRef.current.loadVideoById(videoId);
+      } else {
+          playerRef.current.cueVideoById(videoId);
+      }
     }
   }, [videoId]);
 

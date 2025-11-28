@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState({ current: 0, duration: 0 });
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.OFF);
   
   // UI State
   const [view, setView] = useState<'search' | 'player' | 'settings'>('search');
@@ -112,6 +113,27 @@ const App: React.FC = () => {
     setCurrentIndex(prevIndex);
   };
 
+  const handleTrackEnd = () => {
+    if (queue.length === 0) return;
+
+    // Repeat ONE logic
+    if (repeatMode === RepeatMode.ONE) {
+        playerRef.current?.seekTo(0);
+        return;
+    }
+
+    const isLast = currentIndex === queue.length - 1;
+
+    // Repeat OFF logic: Stop at end
+    if (repeatMode === RepeatMode.OFF && isLast) {
+        setIsPlaying(false);
+        return;
+    }
+
+    // Repeat ALL (default fallthrough) or Normal Next
+    handleNext();
+  };
+
   const handleSeek = (time: number) => {
     // Optimistically update UI
     setProgress(prev => ({ ...prev, current: time }));
@@ -127,6 +149,14 @@ const App: React.FC = () => {
 
   const toggleShuffle = () => {
       setIsShuffle(!isShuffle);
+  };
+
+  const toggleRepeat = () => {
+      setRepeatMode(prev => {
+          if (prev === RepeatMode.OFF) return RepeatMode.ALL;
+          if (prev === RepeatMode.ALL) return RepeatMode.ONE;
+          return RepeatMode.OFF;
+      });
   };
 
   const currentTrack = queue[currentIndex];
@@ -156,7 +186,7 @@ const App: React.FC = () => {
             isPlaying={isPlaying}
             volume={100}
             onTimeUpdate={handleTimeUpdate}
-            onEnded={handleNext}
+            onEnded={handleTrackEnd}
             onReady={() => setIsPlayerReady(true)}
           />
         )}
@@ -327,8 +357,14 @@ const App: React.FC = () => {
                         </button>
                      </div>
 
-                     <button className="p-2 text-white/40 opacity-50 cursor-not-allowed">
+                     <button 
+                        onClick={toggleRepeat}
+                        className={`p-2 relative transition duration-300 ${repeatMode !== RepeatMode.OFF ? 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]' : 'text-white/40'}`}
+                     >
                         <Repeat size={20} />
+                        {repeatMode === RepeatMode.ONE && (
+                            <span className="absolute top-1 right-0.5 text-[8px] font-bold bg-black/50 rounded-full px-0.5">1</span>
+                        )}
                      </button>
                   </div>
                 </div>
