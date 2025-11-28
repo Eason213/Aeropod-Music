@@ -93,11 +93,13 @@ const App: React.FC = () => {
     if (queue.length === 0) return;
     
     let nextIndex = currentIndex + 1;
-    // Loop back to start
+    // Loop back to start if at end
     if (nextIndex >= queue.length) {
         nextIndex = 0;
     }
     setCurrentIndex(nextIndex);
+    // Ensure we are playing
+    setIsPlaying(true);
   };
 
   const handlePrev = () => {
@@ -109,8 +111,10 @@ const App: React.FC = () => {
       return;
     }
     
+    // Go to previous track
     const prevIndex = (currentIndex - 1 + queue.length) % queue.length;
     setCurrentIndex(prevIndex);
+    setIsPlaying(true);
   };
 
   const handleTrackEnd = () => {
@@ -142,8 +146,6 @@ const App: React.FC = () => {
   };
 
   const handleTimeUpdate = (current: number, duration: number) => {
-    // Only update if not currently dragging (dragging logic handled in Seekbar, 
-    // but here we just update state normally)
     setProgress({ current, duration });
   };
 
@@ -168,7 +170,7 @@ const App: React.FC = () => {
     <div className="relative w-full h-[100dvh] bg-black text-white font-sans overflow-hidden flex flex-col items-center justify-center">
       
       {/* Background Blur Mesh */}
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0 pointer-events-none">
          <img src={bgImage} className="w-full h-full object-cover opacity-60 transition-opacity duration-1000" alt="bg" />
          <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl"></div>
          <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-black/80 to-transparent"></div>

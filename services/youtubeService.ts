@@ -29,13 +29,13 @@ export const searchYouTube = async (
   if (!apiKey) throw new Error("API Key is missing");
 
   // Base URL
-  let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=25&q=${encodeURIComponent(query)}&type=${type}&key=${apiKey}`;
+  // videoCategoryId=10 ensures we strictly get Music results
+  let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=25&q=${encodeURIComponent(query)}&type=${type}&key=${apiKey}&videoCategoryId=10`;
 
-  // Apply filters
+  // Apply specific filters
   if (type === 'video') {
     // videoDuration=short (< 4 mins)
-    // videoCategoryId=10 (Music) - This ensures we mostly get music results
-    url += `&videoDuration=short&videoCategoryId=10`;
+    url += `&videoDuration=short`;
   }
 
   const response = await fetch(url);

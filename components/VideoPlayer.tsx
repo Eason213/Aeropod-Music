@@ -32,6 +32,20 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<number | null>(null);
 
+  // Refs to hold latest props to avoid stale closures in event listeners
+  const onEndedRef = useRef(onEnded);
+  const isPlayingRef = useRef(isPlaying);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onReadyRef = useRef(onReady);
+
+  // Update refs whenever props change
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+    isPlayingRef.current = isPlaying;
+    onTimeUpdateRef.current = onTimeUpdate;
+    onReadyRef.current = onReady;
+  }, [onEnded, isPlaying, onTimeUpdate, onReady]);
+
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
     seekTo: (seconds: number) => {
@@ -56,11 +70,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
     return () => {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
-      if (playerRef.current) {
-         try {
-            playerRef.current.destroy();
-         } catch(e) { /* ignore */ }
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -68,34 +77,31 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   // Handle Video ID Change
   useEffect(() => {
     if (playerRef.current && playerRef.current.loadVideoById) {
-      // FORCE STOP before loading new video to prevent state conflicts
-      // playerRef.current.stopVideo(); 
-
+      // Clear interval temporarily while loading
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      
       if (isPlaying) {
-          // Use object syntax for tighter control
-          // 'small' quality speeds up loading significantly (audio focus)
-          playerRef.current.loadVideoById({
-              videoId: videoId,
-              startSeconds: 0,
-              suggestedQuality: 'small' 
-          });
+          // 'small' quality loads fastest for audio
+          playerRef.current.loadVideoById(videoId, 0, 'small');
       } else {
-          playerRef.current.cueVideoById({
-              videoId: videoId,
-              startSeconds: 0,
-              suggestedQuality: 'small'
-          });
+          playerRef.current.cueVideoById(videoId, 0, 'small');
       }
     }
-  }, [videoId]);
+  }, [videoId]); // isPlaying is intentionally omitted here to avoid reloading on pause/play toggle
 
-  // Handle Play/Pause
+  // Handle Play/Pause State
   useEffect(() => {
     if (playerRef.current && playerRef.current.getPlayerState) {
+      const state = playerRef.current.getPlayerState();
       if (isPlaying) {
-        playerRef.current.playVideo();
+        // If state is not playing (1) or buffering (3)
+        if (state !== 1 && state !== 3) {
+            playerRef.current.playVideo();
+        }
       } else {
-        playerRef.current.pauseVideo();
+        if (state === 1) {
+            playerRef.current.pauseVideo();
+        }
       }
     }
   }, [isPlaying]);
@@ -121,7 +127,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
         'fs': 0,
         'iv_load_policy': 3,
         'modestbranding': 1,
-        'rel': 0, // No related videos at end
+        'rel': 0,
+        'origin': window.location.origin, // Helps with embedding restrictions
       },
       events: {
         'onReady': onPlayerReady,
@@ -133,32 +140,44 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
   const onPlayerReady = (event: any) => {
     event.target.setVolume(volume);
-    onReady();
-    if (isPlaying) {
+    onReadyRef.current();
+    
+    if (isPlayingRef.current) {
         event.target.playVideo();
     }
     
-    // Start tracking time
     startProgressTracker();
   };
 
   const onPlayerStateChange = (event: any) => {
+    // Data: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
+    
     // 0 = Ended
     if (event.data === 0) {
-      onEnded();
+      onEndedRef.current();
     }
     
-    // 5 = Video cued. 
-    // If logic thinks we should be playing but video is just cued, force play.
-    if (event.data === 5 && isPlaying) {
-        event.target.playVideo();
+    // 1 = Playing
+    if (event.data === 1) {
+        startProgressTracker();
+    }
+
+    // Force Play Safety Check
+    // If we expect to be playing, but player is Cued (5) or Unstarted (-1), force play.
+    if ((event.data === 5 || event.data === -1) && isPlayingRef.current) {
+        setTimeout(() => {
+           if (playerRef.current && isPlayingRef.current) {
+               playerRef.current.playVideo();
+           }
+        }, 200);
     }
   };
 
   const onPlayerError = (event: any) => {
-      // If error (e.g. unplayable video), skip to next automatically
       console.warn("Player Error:", event.data);
-      onEnded();
+      // If video cannot be played (e.g. 150 restricted), skip to next
+      // We use the Ref ensuring we call the LATEST onEnded function (with correct queue index)
+      onEndedRef.current();
   };
 
   const startProgressTracker = () => {
@@ -167,7 +186,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       if (playerRef.current && playerRef.current.getCurrentTime) {
         const current = playerRef.current.getCurrentTime();
         const duration = playerRef.current.getDuration();
-        onTimeUpdate(current, duration);
+        onTimeUpdateRef.current(current, duration);
       }
     }, 1000);
   };
