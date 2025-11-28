@@ -3,6 +3,7 @@ export interface VideoItem {
   title: string;
   channelTitle: string;
   thumbnailUrl: string;
+  kind: 'video' | 'playlist';
 }
 
 export interface PlayerState {

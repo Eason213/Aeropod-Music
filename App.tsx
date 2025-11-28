@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { searchYouTube } from './services/youtubeService';
+import { searchYouTube, getPlaylistItems } from './services/youtubeService';
 import VideoPlayer, { VideoPlayerHandle } from './components/VideoPlayer';
 import Seekbar from './components/Seekbar';
 import { VideoItem, RepeatMode } from './types';
@@ -23,6 +23,7 @@ const App: React.FC = () => {
   const [results, setResults] = useState<VideoItem[]>([]);
   const [queue, setQueue] = useState<VideoItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [isRecommendation, setIsRecommendation] = useState(true);
   
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -39,6 +40,24 @@ const App: React.FC = () => {
   // Refs
   const playerRef = useRef<VideoPlayerHandle>(null);
 
+  // Load Default Recommendations on Mount
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      if (!API_KEY) return;
+      setIsLoading(true);
+      try {
+        const items = await searchYouTube('Top Music Hits', API_KEY, 'video');
+        setResults(items);
+        setIsRecommendation(true);
+      } catch (err) {
+        console.error("Failed to load recommendations", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchRecommendations();
+  }, []);
+
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
@@ -50,6 +69,7 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
+    setIsRecommendation(false);
     try {
       const items = await searchYouTube(query, API_KEY, searchType);
       setResults(items);
@@ -60,29 +80,54 @@ const App: React.FC = () => {
     }
   };
 
-  const playTrack = (video: VideoItem, index: number, fromList: VideoItem[]) => {
-    let newQueue = [...fromList];
-    let newIndex = index;
+  const playTrack = async (video: VideoItem, index: number, fromList: VideoItem[]) => {
+    try {
+      if (video.kind === 'playlist') {
+        // Handle Playlist Expansion
+        setIsLoading(true);
+        const playlistItems = await getPlaylistItems(video.id, API_KEY);
+        
+        if (playlistItems.length === 0) {
+           throw new Error("此播放清單沒有可播放的歌曲");
+        }
 
-    if (isShuffle) {
-        // Keep the selected song first, shuffle the rest
-        const selected = fromList[index];
-        const remaining = fromList.filter(v => v.id !== selected.id);
-        const shuffled = remaining.sort(() => Math.random() - 0.5);
-        newQueue = [selected, ...shuffled];
-        newIndex = 0;
+        // Set queue to the playlist items and start the first song
+        setQueue(playlistItems);
+        setCurrentIndex(0);
+        setIsPlaying(true);
+        setView('player');
+        setIsLoading(false);
+      } else {
+        // Handle Single Video
+        let newQueue = [...fromList].filter(item => item.kind === 'video'); // Ensure we only play videos
+        let newIndex = newQueue.findIndex(v => v.id === video.id);
+
+        if (isShuffle) {
+            // Keep the selected song first, shuffle the rest
+            const selected = video;
+            const remaining = newQueue.filter(v => v.id !== selected.id);
+            const shuffled = remaining.sort(() => Math.random() - 0.5);
+            newQueue = [selected, ...shuffled];
+            newIndex = 0;
+        }
+        
+        setQueue(newQueue);
+        setCurrentIndex(newIndex);
+        setIsPlaying(true);
+        setView('player');
+      }
+    } catch (err: any) {
+      setError(err.message);
+      setIsLoading(false);
     }
-    
-    setQueue(newQueue);
-    setCurrentIndex(newIndex);
-    setIsPlaying(true);
-    setView('player');
   };
 
   const playRandomResults = () => {
-    if (results.length === 0) return;
+    // Only shuffle playable videos
+    const videos = results.filter(r => r.kind === 'video');
+    if (videos.length === 0) return;
     
-    const shuffled = [...results].sort(() => Math.random() - 0.5);
+    const shuffled = [...videos].sort(() => Math.random() - 0.5);
     setQueue(shuffled);
     setCurrentIndex(0);
     setIsPlaying(true);
@@ -195,16 +240,16 @@ const App: React.FC = () => {
 
         {/* --- VIEW: SEARCH & LIST --- */}
         {view === 'search' && (
-          <div className="flex-1 flex flex-col p-6 animate-slide-up">
+          <div className="flex-1 flex flex-col p-6 animate-slide-up min-h-0">
             {/* Header */}
-            <div className="flex justify-between items-center mb-6 pt-4">
+            <div className="flex justify-between items-center mb-6 pt-4 shrink-0">
                <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-white to-white/50 bg-clip-text text-transparent">
                  AeroPod
                </h1>
             </div>
 
             {/* Search Controls */}
-            <div className="flex flex-col gap-3 mb-6">
+            <div className="flex flex-col gap-3 mb-6 shrink-0">
                 <form onSubmit={handleSearch} className="relative group">
                 <input
                     type="text"
@@ -234,8 +279,8 @@ const App: React.FC = () => {
             </div>
 
             {/* Actions */}
-            {results.length > 0 && (
-               <div className="flex gap-3 mb-6">
+            {results.length > 0 && !isRecommendation && (
+               <div className="flex gap-3 mb-6 shrink-0">
                   <button 
                     onClick={playRandomResults}
                     className="flex-1 h-12 flex items-center justify-center gap-2 bg-white text-black font-semibold rounded-xl active:scale-95 transition shadow-[0_0_20px_rgba(255,255,255,0.2)]"
@@ -245,12 +290,19 @@ const App: React.FC = () => {
                </div>
             )}
 
+            {/* Recommendation Header */}
+            {isRecommendation && results.length > 0 && (
+                <div className="mb-4 shrink-0">
+                    <h2 className="text-white/60 text-sm font-semibold uppercase tracking-wider">Recommended for you</h2>
+                </div>
+            )}
+
             {/* Results List */}
-            <div className="flex-1 overflow-y-auto -mx-6 px-6 pb-32 space-y-4 scroll-smooth">
+            <div className="flex-1 overflow-y-auto -mx-6 px-6 pb-32 space-y-4 scroll-smooth min-h-0">
               {isLoading && (
                  <div className="flex flex-col items-center justify-center h-40 gap-4 text-white/50">
                     <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                    <p>Searching YouTube...</p>
+                    <p>Loading...</p>
                  </div>
               )}
               
@@ -270,12 +322,19 @@ const App: React.FC = () => {
                   <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 shadow-lg">
                     <img src={item.thumbnailUrl} alt={item.title} className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div>
+                    {item.kind === 'playlist' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                            <List size={20} className="text-white" />
+                        </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold truncate text-white/90 text-lg leading-tight mb-1">{item.title}</h3>
-                    <p className="text-sm text-white/50 truncate">{item.channelTitle}</p>
+                    <p className="text-sm text-white/50 truncate">
+                        {item.kind === 'playlist' ? 'Playlist • ' : ''}{item.channelTitle}
+                    </p>
                   </div>
-                  <div className="w-8 h-8 flex items-center justify-center rounded-full border border-white/10 text-white/40 group-hover:border-white/30 group-hover:text-white transition">
+                  <div className="w-8 h-8 flex items-center justify-center rounded-full border border-white/10 text-white/40 group-hover:border-white/30 group-hover:text-white transition shrink-0">
                     <Play size={12} fill="currentColor" />
                   </div>
                 </div>
