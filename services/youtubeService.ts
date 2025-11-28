@@ -31,9 +31,11 @@ export const searchYouTube = async (
   // Base URL
   let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=25&q=${encodeURIComponent(query)}&type=${type}&key=${apiKey}`;
 
-  // Apply duration filter only for videos
+  // Apply filters
   if (type === 'video') {
-    url += `&videoDuration=short`;
+    // videoDuration=short (< 4 mins)
+    // videoCategoryId=10 (Music) - This ensures we mostly get music results
+    url += `&videoDuration=short&videoCategoryId=10`;
   }
 
   const response = await fetch(url);

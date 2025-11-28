@@ -68,10 +68,23 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   // Handle Video ID Change
   useEffect(() => {
     if (playerRef.current && playerRef.current.loadVideoById) {
+      // FORCE STOP before loading new video to prevent state conflicts
+      // playerRef.current.stopVideo(); 
+
       if (isPlaying) {
-          playerRef.current.loadVideoById(videoId);
+          // Use object syntax for tighter control
+          // 'small' quality speeds up loading significantly (audio focus)
+          playerRef.current.loadVideoById({
+              videoId: videoId,
+              startSeconds: 0,
+              suggestedQuality: 'small' 
+          });
       } else {
-          playerRef.current.cueVideoById(videoId);
+          playerRef.current.cueVideoById({
+              videoId: videoId,
+              startSeconds: 0,
+              suggestedQuality: 'small'
+          });
       }
     }
   }, [videoId]);
@@ -108,10 +121,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
         'fs': 0,
         'iv_load_policy': 3,
         'modestbranding': 1,
+        'rel': 0, // No related videos at end
       },
       events: {
         'onReady': onPlayerReady,
         'onStateChange': onPlayerStateChange,
+        'onError': onPlayerError,
       },
     });
   };
@@ -132,6 +147,18 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
     if (event.data === 0) {
       onEnded();
     }
+    
+    // 5 = Video cued. 
+    // If logic thinks we should be playing but video is just cued, force play.
+    if (event.data === 5 && isPlaying) {
+        event.target.playVideo();
+    }
+  };
+
+  const onPlayerError = (event: any) => {
+      // If error (e.g. unplayable video), skip to next automatically
+      console.warn("Player Error:", event.data);
+      onEnded();
   };
 
   const startProgressTracker = () => {
